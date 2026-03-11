@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buddy AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <header>
+            <div class="header-title">
+                <div class="logo-dot"></div>
+                <h1>Buddy AI</h1>
+            </div>
+            <div class="controls">
+                <button id="clear-btn" class="btn">Clear Chat</button>
+            </div>
+        </header>
+
+        <main id="chat-container">
+            <div class="welcome-message">
+                <h2>How can I help you today?</h2>
+                <p>Chat, search, and explore with Buddy.</p>
+            </div>
+            <div id="messages"></div>
+        </main>
+
+        <footer>
+            <form id="chat-form">
+                <div class="input-wrapper">
+                    <textarea id="message-input" placeholder="Message Buddy..." rows="1" autofocus></textarea>
+                    <button type="submit" id="send-btn" class="btn primary-btn" disabled>
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"
+                            stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div class="footer-note">Buddy is an AI and can make mistakes. Consider verifying important information.</div>
+            </form>
+        </footer>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
