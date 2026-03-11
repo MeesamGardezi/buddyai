@@ -69,9 +69,9 @@ def parse_tool_call(text: str) -> ToolCall | None:
 # ── Execution ───────────────────────────────────────────
 
 
-def _execute_search(query: str) -> ToolResult:
+async def _execute_search(query: str) -> ToolResult:
     """Execute a web search."""
-    results = web_search(query)
+    results = await web_search(query)
     formatted = format_results_for_llm(results)
 
     if not results:
@@ -92,9 +92,9 @@ def _execute_search(query: str) -> ToolResult:
     )
 
 
-def _execute_fetch(url: str) -> ToolResult:
+async def _execute_fetch(url: str) -> ToolResult:
     """Fetch and extract content from a URL."""
-    page = fetch_page(url)
+    page = await fetch_page(url)
 
     if not page.success:
         return ToolResult(
@@ -115,7 +115,7 @@ def _execute_fetch(url: str) -> ToolResult:
     )
 
 
-def _execute_done() -> ToolResult:
+async def _execute_done() -> ToolResult:
     """The DONE signal — no actual execution needed."""
     return ToolResult(
         tool_name="done",
@@ -134,7 +134,7 @@ _EXECUTORS = {
 }
 
 
-def execute_tool(tool_call: ToolCall) -> ToolResult:
+async def execute_tool(tool_call: ToolCall) -> ToolResult:
     """Dispatch and execute a tool call.
 
     Args:
@@ -154,9 +154,9 @@ def execute_tool(tool_call: ToolCall) -> ToolResult:
         )
 
     if tool_call.name == "done":
-        return executor()
+        return await executor()
 
-    return executor(tool_call.argument)
+    return await executor(tool_call.argument)
 
 
 # ── Tool Descriptions (for the system prompt) ──────────

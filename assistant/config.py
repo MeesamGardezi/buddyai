@@ -13,6 +13,7 @@ ANSWER_TEMPERATURE = 0.3     # Slightly higher for the final answer (fluency)
 
 # ── Agent Loop ─────────────────────────────────────────
 MAX_AGENT_STEPS = 10         # Hard safety cap on research iterations
+MAX_CONSECUTIVE_FAILURES = 3 # Stop searching after this many consecutive failures
 
 # ── Web Search & Fetching ──────────────────────────────
 SEARCH_TIMEOUT = 10.0        # Seconds — timeout for HTTP requests

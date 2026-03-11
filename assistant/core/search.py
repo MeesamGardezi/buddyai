@@ -51,10 +51,15 @@ def _resolve_ddg_redirect(raw_url: str) -> str:
         match = re.search(r"uddg=([^&]+)", raw_url)
         if match:
             return urllib.parse.unquote(match.group(1))
+    # Handle https:// prefix variant
+    if raw_url.startswith("https://duckduckgo.com/l/?"):
+        match = re.search(r"uddg=([^&]+)", raw_url)
+        if match:
+            return urllib.parse.unquote(match.group(1))
     return raw_url
 
 
-def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[SearchResult]:
+async def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[SearchResult]:
     """Scrape DuckDuckGo HTML for search results.
 
     Args:
@@ -67,8 +72,9 @@ def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[Search
     url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
 
     try:
-        response = httpx.get(url, headers=_HEADERS, timeout=SEARCH_TIMEOUT)
-        response.raise_for_status()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=_HEADERS, timeout=SEARCH_TIMEOUT)
+            response.raise_for_status()
     except Exception as e:
         print(f"[search] Request failed: {e}")
         return []
@@ -81,17 +87,21 @@ def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[Search
             break
 
         # Skip ad/sponsored results
-        if item.get("class") and "result--ad" in item.get("class", []):
+        item_classes = item.get("class", [])
+        if "result--ad" in item_classes or "result--sep" in item_classes:
             continue
 
+        title_elem = item.find("a", class_="result__a")
         url_elem = item.find("a", class_="result__url")
         snippet_elem = item.find("a", class_="result__snippet")
-        title_elem = item.find("a", class_="result__a")
 
+        # Fallback: try broader selectors if primary ones fail
         if not snippet_elem:
-            continue
+            snippet_elem = item.find("td", class_="result__snippet")
+        if not snippet_elem:
+            snippet_elem = item.find(class_="result__snippet")
 
-        # Extract title — prefer result__a (actual title), fallback to URL text
+        # Extract title — prefer result__a, fallback to URL text
         if title_elem:
             title = title_elem.get_text(strip=True)
         elif url_elem:
@@ -101,13 +111,24 @@ def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[Search
 
         # Extract and resolve URL
         raw_url = ""
-        if url_elem:
-            raw_url = url_elem.get("href", "")
-        elif title_elem:
+        if title_elem:
             raw_url = title_elem.get("href", "")
+        if not raw_url and url_elem:
+            raw_url = url_elem.get("href", "")
+        # If href is empty, try the displayed URL text
+        if not raw_url and url_elem:
+            displayed = url_elem.get_text(strip=True)
+            if displayed and "." in displayed:
+                raw_url = displayed if displayed.startswith("http") else f"https://{displayed}"
+
         resolved_url = _resolve_ddg_redirect(raw_url)
 
-        snippet = snippet_elem.get_text(strip=True)
+        # Extract snippet text
+        snippet = snippet_elem.get_text(strip=True) if snippet_elem else title
+
+        # Only skip if we have neither a URL nor useful content
+        if not resolved_url and not snippet:
+            continue
 
         results.append(SearchResult(
             index=len(results) + 1,
@@ -135,7 +156,7 @@ _NOISE_PATTERNS = re.compile(
 )
 
 
-def fetch_page(url: str) -> PageContent:
+async def fetch_page(url: str) -> PageContent:
     """Fetch a URL and extract its readable text content.
 
     Strips navigation, ads, scripts, and other noise.
@@ -151,10 +172,11 @@ def fetch_page(url: str) -> PageContent:
         url = "https://" + url
 
     try:
-        response = httpx.get(
-            url, headers=_HEADERS, timeout=SEARCH_TIMEOUT, follow_redirects=True
-        )
-        response.raise_for_status()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url, headers=_HEADERS, timeout=SEARCH_TIMEOUT, follow_redirects=True
+            )
+            response.raise_for_status()
     except httpx.TimeoutException:
         return PageContent(url=url, title="", text="", success=False, error="Request timed out")
     except Exception as e:

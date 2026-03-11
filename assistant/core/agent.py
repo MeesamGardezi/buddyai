@@ -17,7 +17,7 @@ The agent operates in two phases:
 
 from core import llm
 from core.tools import parse_tool_call, execute_tool, get_tool_descriptions
-from config import MAX_AGENT_STEPS, THINKING_TEMPERATURE, ANSWER_TEMPERATURE
+from config import MAX_AGENT_STEPS, THINKING_TEMPERATURE, ANSWER_TEMPERATURE, MAX_CONSECUTIVE_FAILURES
 
 
 # ── Prompts ─────────────────────────────────────────────
@@ -49,9 +49,10 @@ _SYSTEM_PROMPT = (
     "- If the user mentions a specific URL or domain → FETCH it exactly as provided. Do NOT add 'www.' unless the user explicitly did.\n"
     "- For general questions → SEARCH with targeted keywords.\n"
     "- After seeing search results → FETCH the most relevant pages for detail.\n"
-    "- If search results are poor → reformulate with different keywords.\n"
+    "- If search results are poor → reformulate with DIFFERENT keywords.\n"
     "- Gather information from MULTIPLE sources when possible.\n"
-    "- Signal [DONE] when you have enough for a comprehensive answer.\n\n"
+    "- Signal [DONE] when you have enough for a comprehensive answer.\n"
+    "- If searches keep returning no results, try FETCHING the website directly or signal [DONE] and answer with what you have.\n\n"
 
     "## STRICT RULES\n\n"
     "1. Each response must be ONLY a tool call, OR [DONE], OR a direct answer.\n"
@@ -68,10 +69,11 @@ _REFLECTION_PROMPT = (
     "{result}\n\n"
     "---\n"
     "You have used {step} of {max_steps} research steps.\n"
+    "{dedup_warning}"
     "Reflect on the information gathered so far relative to the user's question.\n\n"
     "Choose your next action:\n"
     "- Need more detail on a result? → [FETCH: url]\n"
-    "- Results were irrelevant? → [SEARCH: refined query]\n"
+    "- Results were irrelevant? → [SEARCH: refined query] (use DIFFERENT keywords)\n"
     "- Need a different angle? → [SEARCH: new keywords]\n"
     "- Have enough for a thorough answer? → [DONE]\n\n"
     "Respond with ONLY your chosen action."
@@ -129,6 +131,8 @@ async def agent_chat(messages: list[dict]):
     # ── Research Phase ──────────────────────────────────
     research_done = False
     tools_used = 0  # Track how many tools were actually executed
+    used_queries: set[str] = set()  # Track search queries to prevent duplicates
+    consecutive_failures = 0  # Track consecutive failed searches
 
     for step in range(1, MAX_AGENT_STEPS + 1):
         # Call LLM silently (non-streaming) to decide next action
@@ -155,15 +159,62 @@ async def agent_chat(messages: list[dict]):
             research_done = True
             break
 
-        # ── Case 3: Tool call → execute and loop ───────
-        result = execute_tool(tool_call)
+        # ── Case 3: Duplicate search query → skip and nudge ──
+        if tool_call.name == "search":
+            normalized_query = tool_call.argument.lower().strip()
+            if normalized_query in used_queries:
+                # Don't execute the duplicate — tell the LLM to try something else
+                working.append({"role": "assistant", "content": response})
+                working.append({
+                    "role": "user",
+                    "content": (
+                        f"[Duplicate Query Blocked — Step {step}]\n"
+                        f"You already searched for '{tool_call.argument}'. "
+                        "Do NOT repeat it.\n\n"
+                        "Choose a DIFFERENT action:\n"
+                        "- Try completely different search keywords → [SEARCH: new query]\n"
+                        "- Try fetching the website directly → [FETCH: https://domain.com]\n"
+                        "- If you have enough info, signal → [DONE]\n\n"
+                        "Respond with ONLY your chosen action."
+                    ),
+                })
+                yield {
+                    "type": "status",
+                    "content": f"_Skipped duplicate search, retrying..._ (step {step}/{MAX_AGENT_STEPS})",
+                }
+                continue
+            used_queries.add(normalized_query)
+
+        # ── Case 4: Tool call → execute and loop ───────
+        result = await execute_tool(tool_call)
         tools_used += 1
+
+        # Track consecutive failures for search
+        if tool_call.name == "search" and not result.success:
+            consecutive_failures += 1
+        else:
+            consecutive_failures = 0
 
         # Show status to the user
         yield {
             "type": "status",
             "content": f"_{result.status_message}_ (step {step}/{MAX_AGENT_STEPS})",
         }
+
+        # If too many consecutive search failures, stop early
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            yield {
+                "type": "status",
+                "content": "_Search not returning results. Compiling answer from available info..._",
+            }
+            break
+
+        # Build dedup warning for reflection prompt
+        dedup_warning = ""
+        if used_queries:
+            dedup_warning = (
+                f"Previous search queries (do NOT repeat these): {', '.join(sorted(used_queries))}\n"
+            )
 
         # Append the exchange to the conversation
         working.append({"role": "assistant", "content": response})
@@ -173,6 +224,7 @@ async def agent_chat(messages: list[dict]):
                 step=step,
                 max_steps=MAX_AGENT_STEPS,
                 result=result.output,
+                dedup_warning=dedup_warning,
             ),
         })
 
@@ -187,11 +239,12 @@ async def agent_chat(messages: list[dict]):
         # This means it can answer from its own knowledge — treat as direct answer.
         working.append({"role": "user", "content": _DIRECT_ANSWER_PROMPT})
     else:
-        # Safety cap hit: force an answer with what we have
-        yield {
-            "type": "status",
-            "content": "_Reached maximum research depth. Compiling answer..._",
-        }
+        # Safety cap hit or consecutive failures: force an answer with what we have
+        if consecutive_failures < MAX_CONSECUTIVE_FAILURES:
+            yield {
+                "type": "status",
+                "content": "_Reached maximum research depth. Compiling answer..._",
+            }
         working.append({
             "role": "user",
             "content": _SAFETY_CAP_PROMPT,
