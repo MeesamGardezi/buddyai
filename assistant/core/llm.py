@@ -31,8 +31,9 @@ async def complete(
         try:
             response = await client.post(url, json=payload, timeout=LLM_TIMEOUT)
             response.raise_for_status()
-            data = response.json()
-            return data.get("message", {}).get("content", "")
+            data = response.json() or {}
+            message = data.get("message") or {}
+            return message.get("content", "")
         except httpx.ConnectError:
             return "[ERROR] Could not connect to Ollama. Is it running?"
         except httpx.TimeoutException:
@@ -72,8 +73,9 @@ async def stream(
                     if not line:
                         continue
                     try:
-                        data = json.loads(line)
-                        content = data.get("message", {}).get("content", "")
+                        data = json.loads(line) or {}
+                        message = data.get("message") or {}
+                        content = message.get("content", "")
                         if content:
                             yield content
                     except json.JSONDecodeError:

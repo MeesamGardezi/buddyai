@@ -21,6 +21,8 @@ async def chat_endpoint(request: ChatRequest):
             async for event in agent_chat(request.messages):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
         

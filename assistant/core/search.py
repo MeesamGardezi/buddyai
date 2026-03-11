@@ -45,17 +45,19 @@ class PageContent:
 # ── Web Search ──────────────────────────────────────────
 
 
-def _resolve_ddg_redirect(raw_url: str) -> str:
-    """Extract the real URL from a DuckDuckGo redirect link."""
-    if raw_url.startswith("//duckduckgo.com/l/?"):
-        match = re.search(r"uddg=([^&]+)", raw_url)
-        if match:
-            return urllib.parse.unquote(match.group(1))
+def _resolve_yahoo_redirect(raw_url: str) -> str:
+    """Extract the real URL from a Yahoo redirect link."""
+    if "/RU=" in raw_url:
+        try:
+            extracted = raw_url.split("/RU=")[1].split("/RK=")[0]
+            return urllib.parse.unquote(extracted)
+        except Exception:
+            pass
     return raw_url
 
 
 def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[SearchResult]:
-    """Scrape DuckDuckGo HTML for search results.
+    """Scrape Yahoo HTML for search results.
 
     Args:
         query:       The search query string.
@@ -64,7 +66,7 @@ def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[Search
     Returns:
         List of SearchResult objects. Empty list on failure.
     """
-    url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    url = f"https://search.yahoo.com/search?p={urllib.parse.quote(query)}"
 
     try:
         response = httpx.get(url, headers=_HEADERS, timeout=SEARCH_TIMEOUT)
@@ -76,37 +78,21 @@ def web_search(query: str, num_results: int = MAX_SEARCH_RESULTS) -> list[Search
     soup = BeautifulSoup(response.text, "html.parser")
     results: list[SearchResult] = []
 
-    for idx, item in enumerate(soup.find_all("div", class_="result"), start=1):
+    for div in soup.find_all("div", class_="algo"):
         if len(results) >= num_results:
             break
 
-        # Skip ad/sponsored results
-        if item.get("class") and "result--ad" in item.get("class", []):
+        title_elem = div.find("h3")
+        a_elem = div.find("a")
+        snippet_elem = div.find("div", class_="compText")
+
+        if not (title_elem and a_elem and snippet_elem):
             continue
 
-        url_elem = item.find("a", class_="result__url")
-        snippet_elem = item.find("a", class_="result__snippet")
-        title_elem = item.find("a", class_="result__a")
+        raw_url = a_elem.get("href", "")
+        resolved_url = _resolve_yahoo_redirect(raw_url)
 
-        if not snippet_elem:
-            continue
-
-        # Extract title — prefer result__a (actual title), fallback to URL text
-        if title_elem:
-            title = title_elem.get_text(strip=True)
-        elif url_elem:
-            title = url_elem.get_text(strip=True)
-        else:
-            title = "Untitled"
-
-        # Extract and resolve URL
-        raw_url = ""
-        if url_elem:
-            raw_url = url_elem.get("href", "")
-        elif title_elem:
-            raw_url = title_elem.get("href", "")
-        resolved_url = _resolve_ddg_redirect(raw_url)
-
+        title = title_elem.get_text(strip=True)
         snippet = snippet_elem.get_text(strip=True)
 
         results.append(SearchResult(
@@ -175,8 +161,14 @@ def fetch_page(url: str) -> PageContent:
 
     # Remove noise elements by class/id pattern
     for element in soup.find_all(True):
-        classes = " ".join(element.get("class", []))
-        elem_id = element.get("id", "")
+        if not hasattr(element, "attrs") or not element.attrs:
+            continue
+        classes = element.attrs.get("class", [])
+        if isinstance(classes, list):
+            classes = " ".join(classes)
+        elif not isinstance(classes, str):
+            classes = str(classes)
+        elem_id = element.attrs.get("id", "")
         if _NOISE_PATTERNS.search(classes) or _NOISE_PATTERNS.search(elem_id):
             element.decompose()
 
