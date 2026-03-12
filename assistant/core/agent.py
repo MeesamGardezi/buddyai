@@ -104,15 +104,18 @@ _REFLECTION_PROMPT = (
 
 
 _ANSWER_PROMPT = (
-    "You have completed your research. Now write your final answer.\n\n"
+    "You have completed your research. Now write your final answer for the user.\n\n"
+    "IMPORTANT: Your response must be the ACTUAL ANSWER with real information. "
+    "Do NOT output [DONE] or any tool calls. Just write a natural, helpful response.\n\n"
     "Guidelines:\n"
     "- Be comprehensive but concise.\n"
     "- Cite your sources with URLs where relevant.\n"
-    "- Structure your answer clearly.\n"
+    "- Structure your answer clearly with headings and bullet points if helpful.\n"
     "- If you found conflicting information, acknowledge it.\n"
     "- If you could not find something, say so honestly.\n"
     "- Do NOT mention your research process, tool calls, or steps.\n"
-    "  Just present the answer naturally as if you already knew it."
+    "  Just present the answer naturally as if you already knew it.\n"
+    "- Do NOT output [DONE], [SEARCH:], [FETCH:], or any tool syntax."
 )
 
 _DIRECT_ANSWER_PROMPT = (
@@ -205,7 +208,8 @@ async def agent_chat(messages: list[dict]):
 
     if research_done and tools_used > 0:
         # Normal case: LLM used tools, then signaled [DONE]
-        working.append({"role": "assistant", "content": "[DONE]"})
+        # Use a neutral marker instead of literal [DONE] to prevent the LLM from echoing it
+        working.append({"role": "assistant", "content": "Research complete. Ready to write final answer."})
         working.append({"role": "user", "content": _ANSWER_PROMPT})
     elif research_done and tools_used == 0:
         # Edge case: LLM said [DONE] without ever using tools.
@@ -222,6 +226,8 @@ async def agent_chat(messages: list[dict]):
             "content": _SAFETY_CAP_PROMPT,
         })
 
-    # Stream the final answer to the user
+    # Stream the final answer to the user (filter out any [DONE] the LLM might echo)
     async for chunk in llm.stream(working, temperature=ANSWER_TEMPERATURE):
-        yield {"type": "content", "content": chunk}
+        cleaned = chunk.replace("[DONE]", "").replace("[done]", "")
+        if cleaned:
+            yield {"type": "content", "content": cleaned}
