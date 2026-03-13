@@ -102,14 +102,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
+            let streamBuffer = '';
 
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
+                streamBuffer += decoder.decode(value, { stream: true });
 
-                for (const line of chunk.split('\n')) {
+                const lines = streamBuffer.split('\n');
+                streamBuffer = lines.pop(); // Keep the last partial line in the buffer
+
+                for (const line of lines) {
                     if (!line.startsWith('data: ')) continue;
 
                     const dataStr = line.substring(6);
@@ -118,12 +122,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     let data;
                     try {
                         data = JSON.parse(dataStr);
-                    } catch {
+                    } catch (e) {
+                        console.error("JSON parse failed. Length:", dataStr.length, "Error:", e);
                         continue;
                     }
 
                     if (data.type === 'status') {
-                        appendStatus(data.content);
+                        appendStatus(data.content, data.image);
                     } else if (data.type === 'content') {
                         if (!contentEl) {
                             contentEl = appendAssistantBubble();
@@ -194,11 +199,24 @@ document.addEventListener('DOMContentLoaded', () => {
         return contentDiv;
     }
 
-    function appendStatus(text) {
+    function appendStatus(text, imageBase64 = null) {
+        const containerDiv = document.createElement('div');
+        containerDiv.className = 'status-msg-container';
+
         const statusDiv = document.createElement('div');
         statusDiv.className = 'status-msg';
         statusDiv.innerHTML = marked.parseInline(text);
-        messagesContainer.appendChild(statusDiv);
+        
+        containerDiv.appendChild(statusDiv);
+
+        if (imageBase64) {
+            const img = document.createElement('img');
+            img.className = 'status-screenshot';
+            img.src = `data:image/jpeg;base64,${imageBase64}`;
+            containerDiv.appendChild(img);
+        }
+
+        messagesContainer.appendChild(containerDiv);
         scrollToBottom();
     }
 

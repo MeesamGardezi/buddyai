@@ -12,7 +12,7 @@ THINKING_TEMPERATURE = 0.1   # Low temp for tool-decision steps (precision)
 ANSWER_TEMPERATURE = 0.3     # Slightly higher for the final answer (fluency)
 
 # ── Agent Loop ─────────────────────────────────────────
-MAX_AGENT_STEPS = 10         # Hard safety cap on research iterations
+MAX_AGENT_STEPS = 20         # Hard safety cap on research iterations
 
 # ── Web Search & Fetching ──────────────────────────────
 SEARCH_TIMEOUT = 10.0        # Seconds — timeout for HTTP requests

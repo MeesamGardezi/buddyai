@@ -3,11 +3,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from core.agent import agent_chat
+from core.browser import browser_manager
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 import json
 import uvicorn
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    yield
+    # Shutdown: ensure browser is closed completely
+    await browser_manager.close()
+
+app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
